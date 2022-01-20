@@ -9,8 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
-    - name: Install libclang-10-dev
-      run: sudo apt install libclang-10-dev
+    - name: Install stuff
+      run: sudo apt install libclang-10-dev python3.9
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
