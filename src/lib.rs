@@ -4,6 +4,7 @@ use std::sync::{atomic, Arc, Mutex};
 use cpython::{py_module_initializer, py_class, PyResult, exc, PyErr, ToPyObject, PythonObject, PyBytes, py_fn, Python};
 use image::{ImageBuffer, Rgb};
 use nokhwa::CameraFormat;
+use parking_lot::FairMutex;
 
 py_module_initializer!(camerata, |py, m| {
     nokhwa::nokhwa_initialize(|_|{});
@@ -68,7 +69,7 @@ fn error_to_exception(py: Python, message: &str) -> PyErr {
 struct CameraInternal {
     camera: Arc<Mutex<nokhwa::Camera>>,
     active: Arc<atomic::AtomicBool>,
-    last_frame: Arc<Mutex<Arc<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>>
+    last_frame: Arc<FairMutex<Arc<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>>
 }
 
 impl CameraInternal {
@@ -76,7 +77,7 @@ impl CameraInternal {
         let me = CameraInternal { 
             camera: Arc::new(Mutex::new(cam)),
             active: Arc::new(atomic::AtomicBool::new(true)),
-            last_frame: Arc::new(Mutex::new(Arc::new(None))),
+            last_frame: Arc::new(FairMutex::new(Arc::new(None))),
         };
         let active = Arc::clone(&me.active);
         let last_frame = Arc::clone(&me.last_frame);
@@ -84,14 +85,14 @@ impl CameraInternal {
         std::thread::spawn(move || {
             while active.load(atomic::Ordering::Relaxed) {
                 if let Ok(frame) = camera.lock().unwrap().frame() {
-                    *last_frame.lock().unwrap() = Arc::new(Some(frame));
+                    *last_frame.lock() = Arc::new(Some(frame));
                 }
             }
         });
         me
     }
     fn last_frame(&self) -> Arc<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>> {
-        Arc::clone(&self.last_frame.lock().unwrap())
+        Arc::clone(&self.last_frame.lock())
     }
 }
 
@@ -121,6 +122,9 @@ py_class!(class Camera |_py| {
                 Err(error_to_exception(_py, &error.to_string()))
             }
         }
+    }
+    def info(&self) -> PyResult<String> {
+        Ok(format!("Selected format: {:?}", self.cam(_py).camera.lock().unwrap().camera_format()))
     }
 
     def poll_frame(&self) -> PyResult<Option<(u32, u32, PyBytes)>> {

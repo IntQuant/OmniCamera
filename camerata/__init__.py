@@ -54,7 +54,7 @@ class Camera:
         if frame is None:
             return None
         w, h, data = frame
-        shape = (w, h, 3)
+        shape = (h, w, 3)
         arr = np.frombuffer(data, dtype=np.uint8)
         return arr.reshape(shape)
     
@@ -63,6 +63,9 @@ class Camera:
         if frame is None:
             return None
         return Image.frombytes("RGB", (frame[0], frame[1]), frame[2])
+    
+    def _info(self):
+        return self._cam.info()
 
 
 def query(only_usable=True) -> list[CameraInfo]:

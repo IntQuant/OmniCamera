@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 cpython = { version = "0.7.0", features = ["extension-module"] }
 nokhwa = { version = "0.9", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"]}
 image = "0.23"
+parking_lot = "^0.11"
