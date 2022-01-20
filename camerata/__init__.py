@@ -1,10 +1,16 @@
 from dataclasses import dataclass
+from typing import Union
 from . import camerata
 import sys
 try:
     import numpy as np
 except ImportError:
     print("[Camerata] Could not import numpy", file=sys.stderr)
+
+try:
+    from PIL import Image
+except ImportError:
+    print("[Camerata] Could not import pillow", file=sys.stderr)
 
 @dataclass
 class CameraInfo:
@@ -32,23 +38,32 @@ class Camera:
         self.info = info
         self._cam = camerata.Camera(info.index, suggested_fps)
     
-    def poll_frame_raw(self) -> tuple[int, int, bytes]:
+    def poll_frame_raw(self) -> Union[tuple[int, int, bytes], None]:
         """
         Get a frame from the camera. Returns width, height, and array of raw rgb values.
-        Guaranteed to never block, but may return zero-filled frames if no frames were recieved from camera yet.
+        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
         """
         return self._cam.poll_frame()
 
-    def poll_frame_np(self) -> "np.ndarray":
+    def poll_frame_np(self) -> Union["np.ndarray", None]:
         """
         Get a frame from the camera. Returns a numpy array.
-        Guaranteed to never block, but may return zero-filled frames if no frames were recieved from camera yet.
+        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
         """
-        w, h, data = self.poll_frame_raw()
+        frame = self.poll_frame_raw()
+        if frame is None:
+            return None
+        w, h, data = frame
         shape = (w, h, 3)
         arr = np.frombuffer(data, dtype=np.uint8)
         return arr.reshape(shape)
-        
+    
+    def poll_frame_pil(self) -> Union["Image.Image", None]:
+        frame = self.poll_frame_raw()
+        if frame is None:
+            return None
+        return Image.frombytes("RGB", (frame[0], frame[1]), frame[2])
+
 
 def query(only_usable=True) -> list[CameraInfo]:
     """
