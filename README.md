@@ -3,7 +3,7 @@ A library for querying and capturing from cameras, based on [nokhwa](https://git
 
 # Examples
 Query available cameras:
-```
+```python
 print(*camerata.query(), sep='\n')
 ```
 Example output:
@@ -13,7 +13,7 @@ CameraInfo(index=0, name='USB2.0 VGA UVC WebCam: USB2.0 V', description='Video4L
 ```
 
 Save an image (note: requires pillow to be installed):
-```
+```python
 import camerata
 import time
 cam = camerata.Camera(camerata.query()[0]) # Open a camera

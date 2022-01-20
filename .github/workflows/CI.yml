@@ -9,11 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+    - name: Install libclang-10-dev
+      run: sudo apt install libclang-10-dev
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
         command: build
         args: --release -o dist
+        container: off
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
