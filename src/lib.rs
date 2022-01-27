@@ -3,7 +3,7 @@ use std::sync::{atomic, Arc, Mutex};
 
 use cpython::{py_module_initializer, py_class, PyResult, exc, PyErr, ToPyObject, PythonObject, PyBytes, py_fn, Python};
 use image::{ImageBuffer, Rgb};
-use nokhwa::{CameraFormat, CaptureAPIBackend};
+use nokhwa::CameraFormat;
 use parking_lot::FairMutex;
 
 py_module_initializer!(camerata, |py, m| {
@@ -16,7 +16,7 @@ py_module_initializer!(camerata, |py, m| {
 });
 
 pub fn query(_py: Python) -> PyResult<Vec<(usize, String, String, String)>> {
-    let devices = nokhwa::query_devices(CaptureAPIBackend::UniversalVideoClass).unwrap();
+    let devices = nokhwa::query().unwrap();
     let mut result = Vec::with_capacity(devices.len());
     for device in devices.into_iter() {
         result.push((device.index(), device.human_name(), device.description(), device.misc()));
