@@ -11,9 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cpython = { version = "0.7.0", features = ["extension-module"] }
-nokhwa = { version = "0.9", features = ["input-v4l", "output-threaded", "input-avfoundation"] }
+nokhwa = { version = "0.9.4", features = ["input-v4l", "output-threaded", "input-avfoundation"] }
 image = "0.23"
 parking_lot = "^0.11"
-
-[target.'cfg(target_os="windows")'.dependencies]
-nokhwa = { version = "0.9", features = ["input-gst", "output-threaded"]}
