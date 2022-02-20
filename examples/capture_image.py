@@ -1,6 +1,6 @@
 """
 Capture an image from camera.
-Note: requires pillow to be installed.
+Note: example requires pillow to be installed.
 """
 import camerata
 import time

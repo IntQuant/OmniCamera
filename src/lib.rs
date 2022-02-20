@@ -1,21 +1,14 @@
 
-use std::sync::{atomic, Arc, Mutex};
+use std::{sync::{atomic, Arc, Mutex}, mem};
 
-use cpython::{py_module_initializer, py_class, PyResult, exc, PyErr, ToPyObject, PythonObject, PyBytes, py_fn, Python};
 use image::{ImageBuffer, Rgb};
-use nokhwa::CameraFormat;
+use pyo3::{prelude::*, exceptions::{PyRuntimeError, PyValueError}, types::PyBytes};
+use nokhwa::{CameraFormat, FrameFormat};
 use parking_lot::FairMutex;
 
-py_module_initializer!(camerata, |py, m| {
-    nokhwa::nokhwa_initialize(|_|{});
-    m.add(py, "__doc__", "Module documentation string")?;
-    m.add(py, "query", py_fn!(py, query()))?;
-    m.add(py, "check_can_use", py_fn!(py, check_can_use(index: usize)))?;
-    m.add_class::<Camera>(py)?;
-    Ok(())
-});
 
-pub fn query(_py: Python) -> PyResult<Vec<(usize, String, String, String)>> {
+#[pyfunction]
+pub fn query() -> PyResult<Vec<(usize, String, String, String)>> {
     let devices = nokhwa::query().unwrap();
     let mut result = Vec::with_capacity(devices.len());
     for device in devices.into_iter() {
@@ -24,8 +17,19 @@ pub fn query(_py: Python) -> PyResult<Vec<(usize, String, String, String)>> {
     Ok(result)
 }
 
-pub fn check_can_use(_py: Python, index: usize) -> PyResult<bool> {
+#[pyfunction]
+pub fn check_can_use(index: usize) -> PyResult<bool> {
     Ok(nokhwa::Camera::new(index, None).is_ok())
+}
+
+#[pymodule]
+fn camerata(_py: Python, m: &PyModule) -> PyResult<()> {
+    nokhwa::nokhwa_initialize(|_|{});
+    m.add_function(wrap_pyfunction!(query, m)?)?;
+    m.add_function(wrap_pyfunction!(check_can_use, m)?)?;
+    m.add_class::<Camera>()?;
+    m.add_class::<CamFormat>()?;
+    Ok(())
 }
 
 fn get_compatible_format(cam: &mut nokhwa::Camera, suggested_fps: u32) -> Result<CameraFormat, Box<dyn std::error::Error>> {
@@ -62,10 +66,6 @@ fn get_compatible_format(cam: &mut nokhwa::Camera, suggested_fps: u32) -> Result
     }
 }
 
-fn error_to_exception(py: Python, message: &str) -> PyErr {
-    PyErr::new_lazy_init(py.get_type::<exc::RuntimeError>(), Some(message.into_py_object(py).into_object()))
-}
-
 struct CameraInternal {
     camera: Arc<Mutex<nokhwa::Camera>>,
     active: Arc<atomic::AtomicBool>,
@@ -79,9 +79,17 @@ impl CameraInternal {
             active: Arc::new(atomic::AtomicBool::new(true)),
             last_frame: Arc::new(FairMutex::new(Arc::new(None))),
         };
-        let active = Arc::clone(&me.active);
-        let last_frame = Arc::clone(&me.last_frame);
-        let camera = Arc::clone(&me.camera);
+        me
+    }
+    fn start(&self, format: CameraFormat) -> Result<(), nokhwa::NokhwaError>{
+        
+        let mut cam_guard = self.camera.lock().unwrap();
+        cam_guard.set_camera_format(format)?;
+        cam_guard.open_stream()?;
+        mem::drop(cam_guard);
+        let active = Arc::clone(&self.active);
+        let last_frame = Arc::clone(&self.last_frame);
+        let camera = Arc::clone(&self.camera);
         std::thread::spawn(move || {
             while active.load(atomic::Ordering::Relaxed) {
                 if let Ok(frame) = camera.lock().unwrap().frame() {
@@ -89,7 +97,7 @@ impl CameraInternal {
                 }
             }
         });
-        me
+        Ok(())
     }
     fn last_frame(&self) -> Arc<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>> {
         Arc::clone(&self.last_frame.lock())
@@ -102,39 +110,104 @@ impl Drop for CameraInternal {
     }
 }
 
-py_class!(class Camera |_py| {
-    data cam: CameraInternal;
+#[derive(Clone)]
+#[pyclass]
+struct CamFormat {
+    #[pyo3(get)]
+    width: u32,
+    #[pyo3(get)]
+    height: u32,
+    #[pyo3(get)]
+    frame_rate: u32,
+    format: FrameFormat,
+}
 
-    def __new__(_cls, index: usize, suggested_fps: u32) -> PyResult<Camera> {
+#[pymethods]
+impl CamFormat {
+    #[getter]
+    fn get_format(&self) -> String {
+        match self.format {
+            FrameFormat::MJPEG => "mjpeg".to_string(),
+            FrameFormat::YUYV => "yuyv".to_string(),
+        }
+    }
+    //#[setter]
+    fn set_format(&mut self, fmt: String) -> PyResult<()> {
+        self.format = match fmt.as_str() {
+            "mjpeg" => FrameFormat::MJPEG,
+            "yuyv" => FrameFormat::YUYV,
+            _ => return Err(PyValueError::new_err("Unsupported value (should be one of 'mjpeg', 'yuyv')")),
+        };
+        Ok(())
+    }
+
+}
+
+impl Into<CameraFormat> for CamFormat {
+    fn into(self) -> CameraFormat {
+        CameraFormat::new_from(self.width, self.height, self.format, self.frame_rate)
+    }
+}
+
+impl From<CameraFormat> for CamFormat {
+    fn from(fmt: CameraFormat) -> Self {
+        CamFormat { width: fmt.width(), height: fmt.height(), format: fmt.format(), frame_rate: fmt.frame_rate() }
+    }
+}
+
+#[pyclass]
+struct Camera {
+    cam: CameraInternal,
+}
+
+#[pymethods]
+impl Camera {
+    #[new]
+    fn new(index: usize) -> PyResult<Camera> {
         match nokhwa::Camera::new(index, None) {
-            Ok(mut cam) => {
-                let format = get_compatible_format(&mut cam, suggested_fps).unwrap();
+            Ok(cam) => {
+                //let format = get_compatible_format(&mut cam, suggested_fps).unwrap();
                 //eprintln!("Selected format: {:?}", format);
-                cam.set_camera_format(format).unwrap();
-                let has_captured = Arc::new(atomic::AtomicBool::new(false));
-                let _has_captured_clone = Arc::clone(&has_captured);
-                if let Err(error) = cam.open_stream() {
-                    return Err(error_to_exception(_py, &error.to_string()));    
-                }
-                Camera::create_instance(_py, CameraInternal::new(cam))
+                
+                Ok(Camera{ cam: CameraInternal::new(cam) })
             },
             Err(error) => {
-                Err(error_to_exception(_py, &error.to_string()))
+                Err(PyRuntimeError::new_err(error.to_string()))
             }
         }
     }
-    def info(&self) -> PyResult<String> {
-        Ok(format!("Selected format: {:?}", self.cam(_py).camera.lock().unwrap().camera_format()))
+    fn open(&self, format: CamFormat) -> PyResult<()> {
+        if let Err(error) = self.cam.start(format.into()) {
+            return Err(PyRuntimeError::new_err(error.to_string()));
+        }
+        let has_captured = Arc::new(atomic::AtomicBool::new(false));
+        let _has_captured_clone = Arc::clone(&has_captured);
+        Ok(())
     }
 
-    def poll_frame(&self) -> PyResult<Option<(u32, u32, PyBytes)>> {
-        match &*self.cam(_py).last_frame() {
+    fn info(&self) -> PyResult<String> {
+        Ok(format!("Selected format: {:?}", self.cam.camera.lock().unwrap().camera_format()))
+    }
+
+    fn get_formats(&self) -> PyResult<Vec<CamFormat>> {
+        match self.cam.camera.lock().unwrap().compatible_camera_formats() {
+            Ok(formats) => {
+                Ok(formats.into_iter().map(|x| {x.into()}).collect())
+            },
+            Err(error) => {
+                Err(PyRuntimeError::new_err(error.to_string()))
+            }
+        }
+    }
+
+    fn poll_frame(&self, py: Python) -> PyResult<Option<(u32, u32, Py<PyBytes>)>> {
+        match &*self.cam.last_frame() {
             Some(frame) => {
-                Ok(Some((frame.width(), frame.height(), PyBytes::new(_py, &frame))))
+                Ok(Some((frame.width(), frame.height(), PyBytes::new(py, &frame).into())))
             },
             None => {
                 Ok(None)
             }
         }
     }
-});
+}
