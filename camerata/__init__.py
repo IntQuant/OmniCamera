@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from typing import Union
+import warnings
 from . import camerata
 import sys
 try:
@@ -76,27 +77,46 @@ class CameraFormatOptions(list):
             return self
         return options
 
+    def _prefer_range(self, val_getter, min_val=None, max_val=None):
+        return self.prefer(lambda x: (min_val is None or val_getter(x)>=min_val) and (max_val is None or val_getter(x)<=max_val))
+    
     def prefer_fps_range(self, min_fps: int=None, max_fps: int=None):
         """
         Prefer formats with min_fps <= frame_rate <= max_fps.
         """
-        return self.prefer(lambda x: (min_fps is None or x.frame_rate>=min_fps) and (max_fps is None or x.frame_rate<=max_fps))
+        return self._prefer_range(lambda x: x.frame_rate, min_fps, max_fps)
 
-    def prefer_sides_ratio(self, width_by_height: float):
+    def prefer_width_range(self, min_width: int=None, max_width: int=None):
+        """
+        Prefer formats with min_width <= width <= max_width.
+        """
+        return self._prefer_range(lambda x: x.width, min_width, max_width)
+    
+    def prefer_height_range(self, min_heigth: int=None, max_height: int=None):
+        """
+        Prefer formats with min_heigth <= height <= max_height.
+        """
+        return self._prefer_range(lambda x: x.height, min_heigth, max_height)
+
+    def prefer_aspect_ratio(self, width_by_height: float):
         """
         Prefer formats with width / height == width_by_height
         """
         return self.prefer(lambda x: abs(x.width/x.height-width_by_height) < 1e-6)
 
+    def prefer_sides_ratio(self, width_by_height: float):
+        warnings.warn("prefer_sides_ratio has been renamed to prefer_aspect_ratio", DeprecationWarning)
+        return self.prefer_aspect_ratio(width_by_height)
+
     def prefer_frame_format(self, fmt: FrameFormat):
         return self.prefer(lambda x: x.frame_format is fmt)
+    
 
-    def resolve(self) -> CameraFormat:
+    def resolve(self, key=lambda x: x.width) -> CameraFormat:
         """
         Returns one of contained formats.
         """
-        self.sort(key=lambda x:x.width)
-        return self[-1]
+        return max(self, key=key)
 
     def resolve_default(self) -> CameraFormat:
         """
@@ -156,6 +176,10 @@ class Camera:
         return arr.reshape(shape)
     
     def poll_frame_pil(self) -> Union["Image.Image", None]:
+        """
+        Get a frame from the camera. Returns a pillow image.
+        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
+        """
         frame = self.poll_frame_raw()
         if frame is None:
             return None

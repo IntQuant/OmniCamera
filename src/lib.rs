@@ -32,65 +32,36 @@ fn camerata(_py: Python, m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
-fn get_compatible_format(cam: &mut nokhwa::Camera, suggested_fps: u32) -> Result<CameraFormat, Box<dyn std::error::Error>> {
-    let fourcc_s = cam.compatible_fourcc()?;
-    //eprintln!("Supported fourccs: {:?}", fourcc_s);
-    let map = cam.compatible_list_by_resolution(fourcc_s[0])?;
-    let format = map.into_iter().filter_map(|(res, fps_vec)| {
-        if let Some(fps) = fps_vec.into_iter().max() {
-            Some(CameraFormat::new(res, fourcc_s[0], fps))
-        } else {
-            None
-        }
-    }).reduce(|acc, cur| {
-        let enough_fps = u32::min(acc.frame_rate(), cur.frame_rate()) >= suggested_fps;
-        let cond = if enough_fps {
-            acc.width() > cur.width()
-        } else {
-            acc.frame_rate() > cur.frame_rate()
-        };
-
-        if cond {
-            acc
-        } else {
-            cur
-        }
-    });
-    match format {
-        Some(format) => {
-            Ok(format)
-        },
-        None => {
-            Ok(cam.camera_format())
-        }
-    }
-}
+type Image = ImageBuffer<Rgb<u8>, Vec<u8>>;
 
 struct CameraInternal {
     camera: Arc<Mutex<nokhwa::Camera>>,
     active: Arc<atomic::AtomicBool>,
-    last_frame: Arc<FairMutex<Arc<Option<ImageBuffer<Rgb<u8>, Vec<u8>>>>>>
+    last_frame: Arc<FairMutex<Arc<Option<Image>>>>,
+    last_err: Arc<FairMutex<Option<nokhwa::NokhwaError>>>,
 }
 
 impl CameraInternal {
     fn new(cam: nokhwa::Camera) -> CameraInternal {
-        let me = CameraInternal { 
+        CameraInternal { 
             camera: Arc::new(Mutex::new(cam)),
             active: Arc::new(atomic::AtomicBool::new(true)),
             last_frame: Arc::new(FairMutex::new(Arc::new(None))),
-        };
-        me
+            last_err: Arc::new(FairMutex::new(None)),
+        }
     }
     fn start(&self, format: CameraFormat) -> Result<(), nokhwa::NokhwaError>{
-        
-        let mut cam_guard = self.camera.lock().unwrap();
-        cam_guard.set_camera_format(format)?;
-        cam_guard.open_stream()?;
-        mem::drop(cam_guard);
         let active = Arc::clone(&self.active);
         let last_frame = Arc::clone(&self.last_frame);
         let camera = Arc::clone(&self.camera);
+        let last_err = Arc::clone(&self.last_err);
         std::thread::spawn(move || {
+            let mut cam_guard = camera.lock().unwrap();
+            if let Err(err) = cam_guard.set_camera_format(format).and(cam_guard.open_stream()) {
+                *last_err.lock() = Some(err);
+                return;
+            }
+            mem::drop(cam_guard);
             while active.load(atomic::Ordering::Relaxed) {
                 if let Ok(frame) = camera.lock().unwrap().frame() {
                     *last_frame.lock() = Arc::new(Some(frame));
@@ -143,9 +114,9 @@ impl CamFormat {
 
 }
 
-impl Into<CameraFormat> for CamFormat {
-    fn into(self) -> CameraFormat {
-        CameraFormat::new_from(self.width, self.height, self.format, self.frame_rate)
+impl From<CamFormat> for CameraFormat {
+    fn from(fmt: CamFormat) -> CameraFormat {
+        CameraFormat::new_from(fmt.width, fmt.height, fmt.format, fmt.frame_rate)
     }
 }
 
@@ -165,10 +136,7 @@ impl Camera {
     #[new]
     fn new(index: usize) -> PyResult<Camera> {
         match nokhwa::Camera::new(index, None) {
-            Ok(cam) => {
-                //let format = get_compatible_format(&mut cam, suggested_fps).unwrap();
-                //eprintln!("Selected format: {:?}", format);
-                
+            Ok(cam) => {              
                 Ok(Camera{ cam: CameraInternal::new(cam) })
             },
             Err(error) => {
@@ -203,11 +171,19 @@ impl Camera {
     fn poll_frame(&self, py: Python) -> PyResult<Option<(u32, u32, Py<PyBytes>)>> {
         match &*self.cam.last_frame() {
             Some(frame) => {
-                Ok(Some((frame.width(), frame.height(), PyBytes::new(py, &frame).into())))
+                Ok(Some((frame.width(), frame.height(), PyBytes::new(py, frame).into())))
             },
             None => {
                 Ok(None)
             }
         }
+    }
+
+    fn check_err(&self) -> PyResult<()> {
+        match &*self.cam.last_err.lock() {
+            Some(error) => Err(PyRuntimeError::new_err(error.to_string())),
+            None => Ok(()),
+        }
+        
     }
 }
