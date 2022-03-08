@@ -1,15 +1,18 @@
 
-use std::{sync::{atomic, Arc, Mutex}, mem};
+use std::{sync::{atomic, Arc, Mutex, Weak}, mem};
 
 use image::{ImageBuffer, Rgb};
 use pyo3::{prelude::*, exceptions::{PyRuntimeError, PyValueError}, types::PyBytes};
-use nokhwa::{CameraFormat, FrameFormat};
+use nokhwa::{CameraFormat, FrameFormat, CameraControl};
 use parking_lot::FairMutex;
 
 
 #[pyfunction]
 pub fn query() -> PyResult<Vec<(usize, String, String, String)>> {
-    let devices = nokhwa::query().unwrap();
+    let devices = match nokhwa::query() {
+        Ok(val) => val,
+        Err(error) => return Err(PyRuntimeError::new_err(error.to_string())),
+    };
     let mut result = Vec::with_capacity(devices.len());
     for device in devices.into_iter() {
         result.push((device.index(), device.human_name(), device.description(), device.misc()));
@@ -29,13 +32,14 @@ fn camerata(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_can_use, m)?)?;
     m.add_class::<Camera>()?;
     m.add_class::<CamFormat>()?;
+    m.add_class::<CamControl>()?;
     Ok(())
 }
 
 type Image = ImageBuffer<Rgb<u8>, Vec<u8>>;
 
 struct CameraInternal {
-    camera: Arc<Mutex<nokhwa::Camera>>,
+    camera: Arc<FairMutex<nokhwa::Camera>>,
     active: Arc<atomic::AtomicBool>,
     last_frame: Arc<FairMutex<Arc<Option<Image>>>>,
     last_err: Arc<FairMutex<Option<nokhwa::NokhwaError>>>,
@@ -44,7 +48,7 @@ struct CameraInternal {
 impl CameraInternal {
     fn new(cam: nokhwa::Camera) -> CameraInternal {
         CameraInternal { 
-            camera: Arc::new(Mutex::new(cam)),
+            camera: Arc::new(FairMutex::new(cam)),
             active: Arc::new(atomic::AtomicBool::new(true)),
             last_frame: Arc::new(FairMutex::new(Arc::new(None))),
             last_err: Arc::new(FairMutex::new(None)),
@@ -56,14 +60,14 @@ impl CameraInternal {
         let camera = Arc::clone(&self.camera);
         let last_err = Arc::clone(&self.last_err);
         std::thread::spawn(move || {
-            let mut cam_guard = camera.lock().unwrap();
+            let mut cam_guard = camera.lock();
             if let Err(err) = cam_guard.set_camera_format(format).and(cam_guard.open_stream()) {
                 *last_err.lock() = Some(err);
                 return;
             }
             mem::drop(cam_guard);
             while active.load(atomic::Ordering::Relaxed) {
-                if let Ok(frame) = camera.lock().unwrap().frame() {
+                if let Ok(frame) = camera.lock().frame() {
                     *last_frame.lock() = Arc::new(Some(frame));
                 }
             }
@@ -127,6 +131,55 @@ impl From<CameraFormat> for CamFormat {
 }
 
 #[pyclass]
+struct CamControl {
+    cam: Weak<FairMutex<nokhwa::Camera>>,
+    control: Mutex<CameraControl>,
+}
+
+#[pymethods]
+impl CamControl {
+    fn value_range(&self) -> (i32, i32, i32) {
+        let control = self.control.lock().unwrap();
+        (control.minimum_value(), control.maximum_value(), control.step())
+    }
+    fn is_automatic(&self) -> bool {
+        let control = self.control.lock().unwrap();
+        match control.flag() {
+            nokhwa::KnownCameraControlFlag::Automatic => true,
+            nokhwa::KnownCameraControlFlag::Manual => false,
+        }
+    }
+    fn set_value(&self, value: Option<i32>) -> PyResult<()> {
+        let mut control = self.control.lock().unwrap();
+        match self.cam.upgrade() {
+            Some(cam) => {
+                match value {
+                    Some(value) => {
+                        control.set_active(true);
+                        if let Err(error) = control.set_value(value) {
+                            return Err(PyRuntimeError::new_err(error.to_string()))
+                        }
+                    },
+                    None => {
+                        control.set_active(false);
+                        let default = control.default();
+                        control.set_value(default).expect("Default value should always work")
+                    }
+                }
+                let mut cam = cam.lock();
+                match cam.set_camera_control(control.clone()) {
+                    Ok(_) => Ok(()),
+                    Err(error) => {Err(PyRuntimeError::new_err(error.to_string()))}
+                }
+            },
+            None => {
+                Err(PyRuntimeError::new_err("Control is unusable as camera object has been dropped".to_string()))
+            }
+        }
+    }
+}
+
+#[pyclass]
 struct Camera {
     cam: CameraInternal,
 }
@@ -154,11 +207,11 @@ impl Camera {
     }
 
     fn info(&self) -> PyResult<String> {
-        Ok(format!("Selected format: {:?}", self.cam.camera.lock().unwrap().camera_format()))
+        Ok(format!("Selected format: {:?}", self.cam.camera.lock().camera_format()))
     }
 
     fn get_formats(&self) -> PyResult<Vec<CamFormat>> {
-        match self.cam.camera.lock().unwrap().compatible_camera_formats() {
+        match self.cam.camera.lock().compatible_camera_formats() {
             Ok(formats) => {
                 Ok(formats.into_iter().map(|x| {x.into()}).collect())
             },
@@ -184,6 +237,17 @@ impl Camera {
             Some(error) => Err(PyRuntimeError::new_err(error.to_string())),
             None => Ok(()),
         }
-        
+    }
+    fn get_controls(&self) -> PyResult<Vec<(String, CamControl)>> {
+        match self.cam.camera.lock().camera_controls_string() {
+            Ok(list) => {
+                Ok(list.into_iter().map(|(name, control)| {
+                    (name, CamControl {control: Mutex::new(control), cam: Arc::downgrade(&self.cam.camera)})
+                }).collect())
+            },
+            Err(_err) => {
+                Ok(Vec::new()) // Nothing supported
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Union
+from typing import Dict, List, Union
 import warnings
 from . import camerata
 import sys
@@ -125,6 +125,45 @@ class CameraFormatOptions(list):
         """
         return self.prefer_fps_range(25, 60).prefer_sides_ratio(4/3).prefer_frame_format(FrameFormat.MJPEG).resolve()
 
+
+class CameraControl:
+    def __init__(self, control):
+        self._control = control
+    
+    @property
+    def value_range(self) -> range:
+        """
+        Return a range of values that can be passed to set_value.
+        """
+        start, stop, step = self._control.value_range()
+        # Just in case - ensure that start is divisible by step, as required by nokhwa
+        new_start = start//step*step
+        while new_start <= start:
+            new_start += step
+        return range(start, stop, step)
+
+    def set_value(self, value: Union[int, None]):
+        """
+        Set a value for this control.
+        *value* in self.value_range should be true.
+        """
+        if value is not None:
+            assert value in self.value_range
+        self._control.set_value(value)
+
+    def set_fraction(self, fraction: float):
+        """
+        Set a value for this control.
+        0 <= *fraction* <= 1 should be true.
+        """
+        assert 0 <= fraction <= 1
+        ind = round(fraction * (len(self.value_range)-1))
+        self.set_value(self.value_range[ind])
+
+    @property
+    def automatic(self):
+        return self._control.is_automatic()
+
 class Camera:
     def __init__(self, info: CameraInfo, suggested_fps: int = 25):
         """
@@ -140,6 +179,13 @@ class Camera:
         Returns a list of supported CameraFormat objects.
         """
         return CameraFormatOptions(map(CameraFormat, self._cam.get_formats()))
+
+    def get_controls(self) -> Dict[str, CameraControl]:
+        """
+        [Experimental]
+        Get a list of supported camera controls
+        """
+        return {k: CameraControl(v) for k, v in self._cam.get_controls()}
 
     def open(self, fmt: CameraFormat = None):
         """
@@ -160,6 +206,7 @@ class Camera:
         """
         if not self._initialized:
             self.open()
+        self._cam.check_err()
         return self._cam.poll_frame()
 
     def poll_frame_np(self) -> Union["np.ndarray", None]:

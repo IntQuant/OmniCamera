@@ -1,6 +1,6 @@
 [package]
 name = "camerata"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 readme = "README.md"
 
@@ -11,6 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.15.1", features = ["extension-module", "macros"] }
-nokhwa = { version = "0.9.1", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"] }
+nokhwa = { version = "0.9.4", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"] }
 image = "0.23"
 parking_lot = "^0.11"
