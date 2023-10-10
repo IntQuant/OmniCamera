@@ -101,16 +101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
 
 [[package]]
-name = "camerata"
-version = "0.5.0"
-dependencies = [
- "image",
- "nokhwa",
- "parking_lot 0.11.2",
- "pyo3",
-]
-
-[[package]]
 name = "cc"
 version = "1.0.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -815,6 +805,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad970fb455818ad6cba4c122ad012fae53ae8b4795f86378bce65e4f6bab2ca4"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "omni_camera"
+version = "0.6.0"
+dependencies = [
+ "image",
+ "nokhwa",
+ "parking_lot 0.11.2",
+ "pyo3",
 ]
 
 [[package]]

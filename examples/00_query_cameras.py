@@ -1,5 +1,5 @@
 """
 Query a list of available cameras
 """
-import camerata
-print(*camerata.query(), sep='\n')
+import omni_camera
+print(*omni_camera.query(), sep='\n')

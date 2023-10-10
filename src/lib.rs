@@ -48,7 +48,7 @@ pub fn check_can_use(index: u32) -> PyResult<bool> {
 }
 
 #[pymodule]
-fn camerata(_py: Python, m: &PyModule) -> PyResult<()> {
+fn omni_camera(_py: Python, m: &PyModule) -> PyResult<()> {
     nokhwa::nokhwa_initialize(|_| {});
     m.add_function(wrap_pyfunction!(query, m)?)?;
     m.add_function(wrap_pyfunction!(check_can_use, m)?)?;

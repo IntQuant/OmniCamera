@@ -3,7 +3,7 @@ requires = ["maturin>=1.1"]
 build-backend = "maturin"
 
 [project]
-name = "camerata"
+name = "omni_camera"
 requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Rust",

@@ -2,17 +2,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Union
 import warnings
-from . import camerata
+from . import omni_camera
 import sys
 try:
     import numpy as np
 except ImportError:
-    print("[Camerata] Could not import numpy", file=sys.stderr)
+    print("[OmniCamera] Could not import numpy", file=sys.stderr)
 
 try:
     from PIL import Image
 except ImportError:
-    print("[Camerata] Could not import pillow", file=sys.stderr)
+    print("[OmniCamera] Could not import pillow", file=sys.stderr)
 
 @dataclass
 class CameraInfo:
@@ -28,7 +28,7 @@ class CameraInfo:
         """
         Check if this camera can be opened.
         """
-        return camerata.check_can_use(self.index)
+        return omni_camera.check_can_use(self.index)
 
 
 class FrameFormat(Enum):
@@ -37,7 +37,7 @@ class FrameFormat(Enum):
 
 
 class CameraFormat:
-    def __init__(self, cam_format: camerata.CamFormat):
+    def __init__(self, cam_format: omni_camera.CamFormat):
         self._fmt = cam_format
     
     @property
@@ -169,7 +169,7 @@ class Camera:
         """
         self.info = info
         self._initialized = False
-        self._cam = camerata.Camera(info.index)
+        self._cam = omni_camera.Camera(info.index)
     
     def get_format_options(self) -> CameraFormatOptions:
         """
@@ -237,7 +237,7 @@ def query(only_usable=True) -> list[CameraInfo]:
     """
     Returns a list of CameraInfo objects, one for every available camera.
     """
-    result = map(lambda x: CameraInfo(*x), camerata.query())
+    result = map(lambda x: CameraInfo(*x), omni_camera.query())
     if only_usable:
         result = filter(CameraInfo.can_open, result)
     return list(result)

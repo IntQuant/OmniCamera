@@ -3,9 +3,9 @@
 Using camera controls.
 Note: example requires pillow to be installed.
 """
-import camerata
+import omni_camera
 import time
-cam = camerata.Camera(camerata.query()[0]) # Open a camera
+cam = omni_camera.Camera(omni_camera.query()[0]) # Open a camera
 while cam.poll_frame_pil() is None: 
     time.sleep(0.1) # Wait until we get at least one frame from the camera
 time.sleep(1)

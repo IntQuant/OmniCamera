@@ -1,12 +1,12 @@
 [package]
-name = "camerata"
-version = "0.5.0"
+name = "omni_camera"
+version = "0.6.0"
 edition = "2021"
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "camerata"
+name = "omni_camera"
 crate-type = ["cdylib"]
 
 [dependencies]
