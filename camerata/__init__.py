@@ -160,9 +160,6 @@ class CameraControl:
         ind = round(fraction * (len(self.value_range)-1))
         self.set_value(self.value_range[ind])
 
-    @property
-    def automatic(self):
-        return self._control.is_automatic()
 
 class Camera:
     def __init__(self, info: CameraInfo, suggested_fps: int = 25):
@@ -202,7 +199,7 @@ class Camera:
     def poll_frame_raw(self) -> Union[tuple[int, int, bytes], None]:
         """
         Get a frame from the camera. Returns width, height, and array of raw rgb values.
-        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
+        Guaranteed to never block, but may return None if no frames were received from camera yet.
         """
         if not self._initialized:
             self.open()
@@ -212,7 +209,7 @@ class Camera:
     def poll_frame_np(self) -> Union["np.ndarray", None]:
         """
         Get a frame from the camera. Returns a numpy array.
-        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
+        Guaranteed to never block, but may return None if no frames were received from camera yet.
         """
         frame = self.poll_frame_raw()
         if frame is None:
@@ -225,7 +222,7 @@ class Camera:
     def poll_frame_pil(self) -> Union["Image.Image", None]:
         """
         Get a frame from the camera. Returns a pillow image.
-        Guaranteed to never block, but may return None if no frames were recieved from camera yet.
+        Guaranteed to never block, but may return None if no frames were received from camera yet.
         """
         frame = self.poll_frame_raw()
         if frame is None:

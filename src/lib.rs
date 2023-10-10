@@ -1,33 +1,55 @@
-
-use std::{sync::{atomic, Arc, Mutex, Weak}, mem};
+use std::{
+    mem,
+    sync::{atomic, Arc, Mutex, Weak},
+};
 
 use image::{ImageBuffer, Rgb};
-use pyo3::{prelude::*, exceptions::{PyRuntimeError, PyValueError}, types::PyBytes};
-use nokhwa::{CameraFormat, FrameFormat, CameraControl};
+use nokhwa::{
+    pixel_format::RgbFormat,
+    utils::{
+        ApiBackend, CameraControl, CameraFormat, CameraIndex, ControlValueDescription, FrameFormat,
+        RequestedFormat, RequestedFormatType,
+    },
+};
 use parking_lot::FairMutex;
-
+use pyo3::{
+    exceptions::{PyRuntimeError, PyValueError},
+    prelude::*,
+    types::PyBytes,
+};
 
 #[pyfunction]
-pub fn query() -> PyResult<Vec<(usize, String, String, String)>> {
-    let devices = match nokhwa::query() {
+pub fn query() -> PyResult<Vec<(u32, String, String, String)>> {
+    let devices = match nokhwa::query(ApiBackend::Auto) {
         Ok(val) => val,
         Err(error) => return Err(PyRuntimeError::new_err(error.to_string())),
     };
     let mut result = Vec::with_capacity(devices.len());
     for device in devices.into_iter() {
-        result.push((device.index(), device.human_name(), device.description(), device.misc()));
+        if let CameraIndex::Index(index) = *device.index() {
+            result.push((
+                index,
+                device.human_name(),
+                device.description().to_owned(),
+                device.misc(),
+            ));
+        }
     }
     Ok(result)
 }
 
 #[pyfunction]
-pub fn check_can_use(index: usize) -> PyResult<bool> {
-    Ok(nokhwa::Camera::new(index, None).is_ok())
+pub fn check_can_use(index: u32) -> PyResult<bool> {
+    Ok(nokhwa::Camera::new(
+        CameraIndex::Index(index),
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
+    )
+    .is_ok())
 }
 
 #[pymodule]
 fn camerata(_py: Python, m: &PyModule) -> PyResult<()> {
-    nokhwa::nokhwa_initialize(|_|{});
+    nokhwa::nokhwa_initialize(|_| {});
     m.add_function(wrap_pyfunction!(query, m)?)?;
     m.add_function(wrap_pyfunction!(check_can_use, m)?)?;
     m.add_class::<Camera>()?;
@@ -47,28 +69,31 @@ struct CameraInternal {
 
 impl CameraInternal {
     fn new(cam: nokhwa::Camera) -> CameraInternal {
-        CameraInternal { 
+        CameraInternal {
             camera: Arc::new(FairMutex::new(cam)),
             active: Arc::new(atomic::AtomicBool::new(true)),
             last_frame: Arc::new(FairMutex::new(Arc::new(None))),
             last_err: Arc::new(FairMutex::new(None)),
         }
     }
-    fn start(&self, format: CameraFormat) -> Result<(), nokhwa::NokhwaError>{
+    fn start(&self, format: CameraFormat) -> Result<(), nokhwa::NokhwaError> {
         let active = Arc::clone(&self.active);
         let last_frame = Arc::clone(&self.last_frame);
         let camera = Arc::clone(&self.camera);
         let last_err = Arc::clone(&self.last_err);
         std::thread::spawn(move || {
             let mut cam_guard = camera.lock();
-            if let Err(err) = cam_guard.set_camera_format(format).and(cam_guard.open_stream()) {
+            if let Err(err) = cam_guard
+                .set_camera_format(format)
+                .and(cam_guard.open_stream())
+            {
                 *last_err.lock() = Some(err);
                 return;
             }
             mem::drop(cam_guard);
             while active.load(atomic::Ordering::Relaxed) {
                 if let Ok(frame) = camera.lock().frame() {
-                    *last_frame.lock() = Arc::new(Some(frame));
+                    *last_frame.lock() = Arc::new(frame.decode_image::<RgbFormat>().ok());
                 }
             }
         });
@@ -104,6 +129,9 @@ impl CamFormat {
         match self.format {
             FrameFormat::MJPEG => "mjpeg".to_string(),
             FrameFormat::YUYV => "yuyv".to_string(),
+            FrameFormat::GRAY => "gray".to_string(),
+            FrameFormat::NV12 => "nv12".to_string(),
+            FrameFormat::RAWRGB => "rawrgb".to_string(),
         }
     }
     //#[setter]
@@ -111,11 +139,14 @@ impl CamFormat {
         self.format = match fmt.as_str() {
             "mjpeg" => FrameFormat::MJPEG,
             "yuyv" => FrameFormat::YUYV,
-            _ => return Err(PyValueError::new_err("Unsupported value (should be one of 'mjpeg', 'yuyv')")),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "Unsupported value (should be one of 'mjpeg', 'yuyv')",
+                ))
+            }
         };
         Ok(())
     }
-
 }
 
 impl From<CamFormat> for CameraFormat {
@@ -126,7 +157,12 @@ impl From<CamFormat> for CameraFormat {
 
 impl From<CameraFormat> for CamFormat {
     fn from(fmt: CameraFormat) -> Self {
-        CamFormat { width: fmt.width(), height: fmt.height(), format: fmt.format(), frame_rate: fmt.frame_rate() }
+        CamFormat {
+            width: fmt.width(),
+            height: fmt.height(),
+            format: fmt.format(),
+            frame_rate: fmt.frame_rate(),
+        }
     }
 }
 
@@ -138,43 +174,37 @@ struct CamControl {
 
 #[pymethods]
 impl CamControl {
-    fn value_range(&self) -> (i32, i32, i32) {
+    fn value_range(&self) -> (i64, i64, i64) {
         let control = self.control.lock().unwrap();
-        (control.minimum_value(), control.maximum_value(), control.step())
-    }
-    fn is_automatic(&self) -> bool {
-        let control = self.control.lock().unwrap();
-        match control.flag() {
-            nokhwa::KnownCameraControlFlag::Automatic => true,
-            nokhwa::KnownCameraControlFlag::Manual => false,
+        let control_desc = control.description();
+        match control_desc {
+            ControlValueDescription::IntegerRange { min, max, step, .. } => (*min, *max, *step),
+            _ => todo!(),
         }
     }
-    fn set_value(&self, value: Option<i32>) -> PyResult<()> {
+    fn set_value(&self, value: Option<i64>) -> PyResult<()> {
         let mut control = self.control.lock().unwrap();
         match self.cam.upgrade() {
-            Some(cam) => {
-                match value {
-                    Some(value) => {
-                        control.set_active(true);
-                        if let Err(error) = control.set_value(value) {
-                            return Err(PyRuntimeError::new_err(error.to_string()))
-                        }
-                    },
-                    None => {
-                        control.set_active(false);
-                        let default = control.default();
-                        control.set_value(default).expect("Default value should always work")
+            Some(cam) => match value {
+                Some(value) => {
+                    control.set_active(true);
+                    let mut cam = cam.lock();
+                    match cam.set_camera_control(
+                        control.control(),
+                        nokhwa::utils::ControlValueSetter::Integer(value),
+                    ) {
+                        Ok(_) => Ok(()),
+                        Err(error) => Err(PyRuntimeError::new_err(error.to_string())),
                     }
                 }
-                let mut cam = cam.lock();
-                match cam.set_camera_control(control.clone()) {
-                    Ok(_) => Ok(()),
-                    Err(error) => {Err(PyRuntimeError::new_err(error.to_string()))}
+                None => {
+                    control.set_active(false);
+                    Ok(())
                 }
             },
-            None => {
-                Err(PyRuntimeError::new_err("Control is unusable as camera object has been dropped".to_string()))
-            }
+            None => Err(PyRuntimeError::new_err(
+                "Control is unusable as camera object has been dropped".to_string(),
+            )),
         }
     }
 }
@@ -187,14 +217,15 @@ struct Camera {
 #[pymethods]
 impl Camera {
     #[new]
-    fn new(index: usize) -> PyResult<Camera> {
-        match nokhwa::Camera::new(index, None) {
-            Ok(cam) => {              
-                Ok(Camera{ cam: CameraInternal::new(cam) })
-            },
-            Err(error) => {
-                Err(PyRuntimeError::new_err(error.to_string()))
-            }
+    fn new(index: u32) -> PyResult<Camera> {
+        match nokhwa::Camera::new(
+            CameraIndex::Index(index),
+            RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
+        ) {
+            Ok(cam) => Ok(Camera {
+                cam: CameraInternal::new(cam),
+            }),
+            Err(error) => Err(PyRuntimeError::new_err(error.to_string())),
         }
     }
     fn open(&self, format: CamFormat) -> PyResult<()> {
@@ -207,28 +238,27 @@ impl Camera {
     }
 
     fn info(&self) -> PyResult<String> {
-        Ok(format!("Selected format: {:?}", self.cam.camera.lock().camera_format()))
+        Ok(format!(
+            "Selected format: {:?}",
+            self.cam.camera.lock().camera_format()
+        ))
     }
 
     fn get_formats(&self) -> PyResult<Vec<CamFormat>> {
         match self.cam.camera.lock().compatible_camera_formats() {
-            Ok(formats) => {
-                Ok(formats.into_iter().map(|x| {x.into()}).collect())
-            },
-            Err(error) => {
-                Err(PyRuntimeError::new_err(error.to_string()))
-            }
+            Ok(formats) => Ok(formats.into_iter().map(|x| x.into()).collect()),
+            Err(error) => Err(PyRuntimeError::new_err(error.to_string())),
         }
     }
 
     fn poll_frame(&self, py: Python) -> PyResult<Option<(u32, u32, Py<PyBytes>)>> {
         match &*self.cam.last_frame() {
-            Some(frame) => {
-                Ok(Some((frame.width(), frame.height(), PyBytes::new(py, frame).into())))
-            },
-            None => {
-                Ok(None)
-            }
+            Some(frame) => Ok(Some((
+                frame.width(),
+                frame.height(),
+                PyBytes::new(py, frame).into(),
+            ))),
+            None => Ok(None),
         }
     }
 
@@ -240,11 +270,18 @@ impl Camera {
     }
     fn get_controls(&self) -> PyResult<Vec<(String, CamControl)>> {
         match self.cam.camera.lock().camera_controls_string() {
-            Ok(list) => {
-                Ok(list.into_iter().map(|(name, control)| {
-                    (name, CamControl {control: Mutex::new(control), cam: Arc::downgrade(&self.cam.camera)})
-                }).collect())
-            },
+            Ok(list) => Ok(list
+                .into_iter()
+                .map(|(name, control)| {
+                    (
+                        name,
+                        CamControl {
+                            control: Mutex::new(control),
+                            cam: Arc::downgrade(&self.cam.camera),
+                        },
+                    )
+                })
+                .collect()),
             Err(_err) => {
                 Ok(Vec::new()) // Nothing supported
             }
