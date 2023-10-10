@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install stuff
-      run: sudo apt install libclang-10-dev python3.10 libusb-1.0-0-dev libudev-dev
+      run: sudo apt install libclang-14-dev python3.10 libusb-1.0-0-dev libudev-dev
     - uses: messense/maturin-action@v1
       with:
         manylinux: auto
@@ -44,7 +44,7 @@ jobs:
     - uses: messense/maturin-action@v1
       with:
         command: build
-        args: --release -o dist --universal2
+        args: --release -o dist
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
