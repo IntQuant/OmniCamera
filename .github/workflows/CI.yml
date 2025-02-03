@@ -7,7 +7,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install stuff
       run: sudo apt install libclang-14-dev python3.10 libusb-1.0-0-dev libudev-dev
     - uses: messense/maturin-action@v1
@@ -25,7 +25,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - uses: messense/maturin-action@v1
       with:
         command: build
@@ -39,7 +39,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - uses: messense/maturin-action@v1
       with:
         command: build
