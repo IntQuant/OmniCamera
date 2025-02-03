@@ -257,7 +257,7 @@ impl Camera {
             Some(frame) => Ok(Some((
                 frame.width(),
                 frame.height(),
-                PyBytes::new_bound(py, frame).into(),
+                PyBytes::new(py, frame).into(),
             ))),
             None => Ok(None),
         }

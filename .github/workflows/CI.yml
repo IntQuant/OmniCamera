@@ -41,6 +41,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
+      - name: Install stuff
+        run: sudo apt-get install -y libclang-14-dev libusb-1.0-0-dev libudev-dev
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -48,7 +50,7 @@ jobs:
           args: --release --out dist
           sccache: 'true'
           manylinux: auto
-          before-script-linux: apt-get install -y libclang-14-dev libusb-1.0-0-dev libudev-dev
+          container: off
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -56,7 +58,7 @@ jobs:
           args: --release --out dist -i python3.13t
           sccache: 'true'
           manylinux: auto
-          before-script-linux: apt-get install -y libclang-14-dev libusb-1.0-0-dev libudev-dev
+          container: off
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
