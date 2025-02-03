@@ -10,7 +10,7 @@ name = "omni_camera"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.21.2", features = ["extension-module", "macros"] }
+pyo3 = { version = "0.21.2", features = ["extension-module", "macros", "abi3-py39"] }
 nokhwa = { git="https://github.com/l1npengtul/nokhwa.git", branch="0.10", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"] }
 image = "0.24.7"
 parking_lot = "^0.11"
