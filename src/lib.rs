@@ -48,7 +48,7 @@ pub fn check_can_use(index: u32) -> PyResult<bool> {
 }
 
 #[pymodule]
-fn omni_camera(_py: Python, m: &PyModule) -> PyResult<()> {
+fn omni_camera(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     nokhwa::nokhwa_initialize(|_| {});
     m.add_function(wrap_pyfunction!(query, m)?)?;
     m.add_function(wrap_pyfunction!(check_can_use, m)?)?;
@@ -182,6 +182,7 @@ impl CamControl {
             _ => todo!(),
         }
     }
+    #[pyo3(signature = (value=None))]
     fn set_value(&self, value: Option<i64>) -> PyResult<()> {
         let mut control = self.control.lock().unwrap();
         match self.cam.upgrade() {
@@ -256,7 +257,7 @@ impl Camera {
             Some(frame) => Ok(Some((
                 frame.width(),
                 frame.height(),
-                PyBytes::new(py, frame).into(),
+                PyBytes::new_bound(py, frame).into(),
             ))),
             None => Ok(None),
         }
