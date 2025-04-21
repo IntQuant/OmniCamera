@@ -34,6 +34,9 @@ class CameraInfo:
 class FrameFormat(Enum):
     MJPEG = "mjpeg"
     YUYV = "yuyv"
+    GRAY = "gray"
+    NV12 = "nv12"
+    RAWRGB = "rawrgb"
 
 
 class CameraFormat:

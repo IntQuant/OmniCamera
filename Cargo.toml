@@ -1,6 +1,6 @@
 [package]
 name = "omni_camera"
-version = "0.6.2"
+version = "0.6.3"
 edition = "2021"
 readme = "README.md"
 
@@ -11,6 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.23.4", features = ["extension-module", "macros", "abi3-py39", "generate-import-lib"] }
-nokhwa = { git="https://github.com/l1npengtul/nokhwa.git", branch="0.10", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"] }
-image = "0.24.7"
+nokhwa = { version = "0.10.7", features = ["input-v4l", "input-msmf", "output-threaded", "input-avfoundation"] }
+image = { version="0.25.6", default-features = false }
 parking_lot = "^0.11"
